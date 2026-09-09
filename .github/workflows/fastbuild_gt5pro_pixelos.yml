@@ -148,6 +148,7 @@ jobs:
           echo "所有源码及llvm-Clang20工具链初始化完成！"
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
+          sed -i "s/int main(int argc, char \*\*argv)/const char *key_pass = NULL;\nint main(int argc, char **argv)/" common/certs/extract-cert.c || true
           for f in common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"

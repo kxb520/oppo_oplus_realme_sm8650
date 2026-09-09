@@ -131,6 +131,7 @@ jobs:
           
           echo "正在克隆 Realme-GT5pro-Development PixelOS 源码仓库..."
           git clone --depth=1 https://github.com/Realme-GT5pro-Development/android_kernel_oneplus_sm8650.git -b lineage-23.2 common &
+          git clone --depth=1 https://github.com/Realme-GT5pro-Development/android_kernel_oneplus_sm8650-modules.git -b lineage-23.2 sm8650-modules &
           
           echo "正在克隆llvm-Clang20工具链..." &&
           mkdir -p clang20 &&

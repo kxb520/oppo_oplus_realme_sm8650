@@ -322,6 +322,9 @@ if [[ "$APPLY_DROIDSPACES" == [sSeE] ]]; then
   # 修补 oplus_bsp_midas 行为，避免开机崩溃
   wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/droidspaces_patch/fix_oplus_bsp_midas.patch
   patch -p1 -F 3 < fix_oplus_bsp_midas.patch || true
+  # 应用容器 SELinux 零感知精准放行补丁
+  wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/droidspaces_patch/container_selinux_pass.patch
+  patch -p1 -F 3 < container_selinux_pass.patch || true
   # 应用 NTSync 补丁
   wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/droidspaces_patch/ntsync_base.patch
   wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/droidspaces_patch/ntsync_compat_android14-6.1.patch

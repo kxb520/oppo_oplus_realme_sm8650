@@ -542,12 +542,12 @@ jobs:
           sed -i 's/KERNEL_VERSION(6, 3, 0)/KERNEL_VERSION(6, 1, 0)/g' drivers/net/wireless/realtek/rtl8821cu/os_dep/linux/ioctl_cfg80211.c 2>/dev/null || true
           # 修复 Kbuild O=out 外部构建时的头文件与子 makefile 相对路径
           find drivers/net/wireless/realtek/rtl8821cu -type f \( -name "Makefile" -o -name "*.mk" \) -exec sed -i 's|\$(src)/|\$(srctree)/\$(src)/|g' {} +
-          sed -i '1i ccflags-y += -I\$(srctree)/\$(src)/include -I\$(srctree)/\$(src)/platform -I\$(srctree)/\$(src)/hal/btc -I\$(srctree)/\$(src)/hal/phydm -I\$(srctree)/\$(src)/core/crypto -Wno-error -Wno-unknown-warning-option' drivers/net/wireless/realtek/rtl8821cu/Makefile
+          sed -i '1i ccflags-y += -I\$(srctree)/\$(src)/include -I\$(srctree)/\$(src)/platform -I\$(srctree)/\$(src)/hal/btc -I\$(srctree)/\$(src)/hal/phydm -I\$(srctree)/\$(src)/core/crypto -DCONFIG_NL80211_TESTMODE=1 -DCONFIG_RTW_MACADDR_ACL=0 -Wno-error -Wno-unknown-warning-option' drivers/net/wireless/realtek/rtl8821cu/Makefile
 
           echo "CONFIG_WIRELESS=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_CFG80211=m" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_MAC80211=m" >> ./arch/arm64/configs/gki_defconfig
-          echo "CONFIG_CFG80211_WEXT=y" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NL80211_TESTMODE=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_WLAN=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_WLAN_VENDOR_REALTEK=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_RTL8821CU=m" >> ./arch/arm64/configs/gki_defconfig

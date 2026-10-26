@@ -540,6 +540,27 @@ jobs:
           sed -i 's/CONFIG_LOAD_PHY_PARA_FROM_FILE = y/CONFIG_LOAD_PHY_PARA_FROM_FILE = n/' drivers/net/wireless/realtek/rtl8821cu/Makefile 2>/dev/null || true
           # 修复 Linux 6.1.141 / Android GKI 6.1 backported punct_bitmap 参数适配
           sed -i 's/KERNEL_VERSION(6, 3, 0)/KERNEL_VERSION(6, 1, 0)/g' drivers/net/wireless/realtek/rtl8821cu/os_dep/linux/ioctl_cfg80211.c 2>/dev/null || true
+          # 修复 Android GKI Clang KCFI (Control Flow Integrity) 函数签名与 Tasklet 回调类型匹配
+          python3 -c "
+import os
+base = 'drivers/net/wireless/realtek/rtl8821cu'
+def patch_file(rel, old, new):
+    p = os.path.join(base, rel)
+    if os.path.exists(p):
+        with open(p, 'r') as f: c = f.read()
+        c = c.replace(old, new)
+        with open(p, 'w') as f: f.write(c)
+
+patch_file('include/xmit_osdep.h', 'extern int rtw_xmit_entry(_pkt *pkt, _nic_hdl pnetdev);', 'extern netdev_tx_t rtw_xmit_entry(struct sk_buff *skb, struct net_device *dev);')
+patch_file('os_dep/linux/xmit_linux.c', 'int rtw_xmit_entry(_pkt *pkt, _nic_hdl pnetdev)\n{', 'netdev_tx_t rtw_xmit_entry(struct sk_buff *skb, struct net_device *dev)\n{\n\t_pkt *pkt = (_pkt *)skb;\n\t_nic_hdl pnetdev = (_nic_hdl)dev;')
+patch_file('include/usb_ops_linux.h', 'void usb_recv_tasklet(void *priv);', 'void usb_recv_tasklet(unsigned long priv);')
+patch_file('os_dep/linux/usb_ops_linux.c', 'void usb_recv_tasklet(void *priv)\n{', 'void usb_recv_tasklet(unsigned long priv)\n{')
+patch_file('hal/hal_hci/hal_usb.c', '(void *)usb_recv_tasklet,', '(void(*)(unsigned long))usb_recv_tasklet,')
+patch_file('hal/rtl8821c/usb/rtl8821cu_xmit.c', '(void *)rtl8821cu_xmit_tasklet,', '(void(*)(unsigned long))rtl8821cu_xmit_tasklet,')
+patch_file('os_dep/linux/ioctl_cfg80211.c', 'static int rtw_cfg80211_monitor_if_xmit_entry(struct sk_buff *skb, struct net_device *ndev)', 'static netdev_tx_t rtw_cfg80211_monitor_if_xmit_entry(struct sk_buff *skb, struct net_device *ndev)')
+patch_file('os_dep/linux/mlme_linux.c', 'static int mgnt_xmit_entry(struct sk_buff *skb, struct net_device *pnetdev)', 'static netdev_tx_t mgnt_xmit_entry(struct sk_buff *skb, struct net_device *pnetdev)')
+patch_file('core/mesh/rtw_mesh.c', 'static void mpath_tx_tasklet_hdl(void *priv)', 'static void mpath_tx_tasklet_hdl(unsigned long priv)')
+"
           # 修复 Kbuild O=out 外部构建时的头文件与子 makefile 相对路径
           find drivers/net/wireless/realtek/rtl8821cu -type f \( -name "Makefile" -o -name "*.mk" \) -exec sed -i 's|\$(src)/|\$(srctree)/\$(src)/|g' {} +
           sed -i '1i ccflags-y += -I\$(srctree)/\$(src)/include -I\$(srctree)/\$(src)/platform -I\$(srctree)/\$(src)/hal/btc -I\$(srctree)/\$(src)/hal/phydm -I\$(srctree)/\$(src)/core/crypto -DCONFIG_NL80211_TESTMODE=1 -DCONFIG_RTW_MACADDR_ACL=0 -Wno-error -Wno-unknown-warning-option' drivers/net/wireless/realtek/rtl8821cu/Makefile
@@ -551,6 +572,7 @@ jobs:
           echo "CONFIG_WLAN=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_WLAN_VENDOR_REALTEK=y" >> ./arch/arm64/configs/gki_defconfig
           echo "CONFIG_RTL8821CU=m" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CFI_PERMISSIVE=y" >> ./arch/arm64/configs/gki_defconfig
 
       - name: 启用三星SSG IO调度器
         if: inputs.ssg_enable

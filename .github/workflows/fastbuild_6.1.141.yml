@@ -55,11 +55,16 @@ on:
         description: '是否启用Droidspaces容器支持(轻量化的完整Linux容器支持;false关闭,standard开启容器+ntsync支持,extend开启更多测试支持项)'
         required: true
         type: choice
-        default: 'false'
+        default: 'standard'
         options:
           - 'false'
           - 'standard'
           - 'extend'
+      usb_wifi_enable:
+        description: '是否启用USB无线网卡驱动(内置RTL8821CU/RTL8811CU支持并生成8821cu.ko驱动模块)'
+        required: true
+        type: boolean
+        default: 'true'
       better_net:
         description: '是否开启网络功能拓展配置(用于为ipset及需要iptables等高级网络功能内核支持的程序提供支持)'
         required: true
@@ -515,6 +520,34 @@ jobs:
             fi
           fi
 
+      - name: 集成 USB 无线网卡支持 (RTL8821CU / RTL8811CU)
+        if: inputs.usb_wifi_enable || github.event.inputs.droidspaces_enable != 'false'
+        run: |
+          echo "正在集成 RTL8821CU / RTL8811CU (0bda:c811) USB 无线网卡驱动..."
+          cd kernel_workspace/common
+          git clone --depth=1 https://github.com/morrownr/8821cu-20210916.git drivers/net/wireless/realtek/rtl8821cu || \
+          git clone --depth=1 https://github.com/brektrou/rtl8821CU.git drivers/net/wireless/realtek/rtl8821cu
+          mkdir -p drivers/net/wireless/realtek
+          touch drivers/net/wireless/realtek/Makefile
+          if ! grep -q "CONFIG_RTL8821CU" drivers/net/wireless/realtek/Makefile; then
+            echo "obj-\$(CONFIG_RTL8821CU) += rtl8821cu/" >> drivers/net/wireless/realtek/Makefile
+          fi
+          if grep -q "endif # WLAN_VENDOR_REALTEK" drivers/net/wireless/realtek/Kconfig; then
+            sed -i '/endif # WLAN_VENDOR_REALTEK/i source "drivers/net/wireless/realtek/rtl8821cu/Kconfig"' drivers/net/wireless/realtek/Kconfig
+          else
+            echo 'source "drivers/net/wireless/realtek/rtl8821cu/Kconfig"' >> drivers/net/wireless/realtek/Kconfig
+          fi
+          sed -i 's/CONFIG_LOAD_PHY_PARA_FROM_FILE = y/CONFIG_LOAD_PHY_PARA_FROM_FILE = n/' drivers/net/wireless/realtek/rtl8821cu/Makefile 2>/dev/null || true
+          sed -i '1i ccflags-y += -Wno-error -Wno-unknown-warning-option' drivers/net/wireless/realtek/rtl8821cu/Makefile
+
+          echo "CONFIG_WIRELESS=y" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CFG80211=m" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_MAC80211=m" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CFG80211_WEXT=y" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_WLAN=y" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_WLAN_VENDOR_REALTEK=y" >> ./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_RTL8821CU=m" >> ./arch/arm64/configs/gki_defconfig
+
       - name: 启用三星SSG IO调度器
         if: inputs.ssg_enable
         run: |
@@ -630,6 +663,21 @@ jobs:
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
+          # 编译 8821cu.ko 驱动模块
+          if [ -d drivers/net/wireless/realtek/rtl8821cu ]; then
+            echo "正在编译 8821cu.ko 驱动模块..."
+            make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error M=drivers/net/wireless/realtek/rtl8821cu modules || \
+            make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error modules || true
+            mkdir -p ${{ github.workspace }}/modules_out
+            find . -name "8821cu.ko" -exec cp -v {} ${{ github.workspace }}/modules_out/ \; 2>/dev/null || true
+            if [ -f ${{ github.workspace }}/modules_out/8821cu.ko ]; then
+              $CLANG_DIR/llvm-strip --strip-debug ${{ github.workspace }}/modules_out/8821cu.ko 2>/dev/null || true
+              echo "8821cu.ko 编译并提取成功！大小: $(ls -lh ${{ github.workspace }}/modules_out/8821cu.ko)"
+            else
+              echo "警告: 未能生成 8821cu.ko 模块文件！"
+            fi
+          fi
+          
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
@@ -670,6 +718,10 @@ jobs:
           if [[ ! -f ./Image ]]; then
             echo "未找到内核镜像文件，构建可能出错"
             exit 1
+          fi
+          if [ -f ${{ github.workspace }}/modules_out/8821cu.ko ]; then
+            cp ${{ github.workspace }}/modules_out/8821cu.ko ./8821cu.ko
+            echo "已将 8821cu.ko 打包至 AnyKernel3！"
           fi
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
             KSU_TYPENAME="SukiSU"
@@ -722,6 +774,7 @@ jobs:
           echo "SSG: ${{ github.event.inputs.ssg_enable }}" >> ./ak3.log
           echo "Re-Kernel: ${{ github.event.inputs.rekernel_enable }}" >> ./ak3.log
           echo "BBG: ${{ github.event.inputs.baseband_guard }}" >> ./ak3.log
+          echo "USB Wi-Fi: ${{ github.event.inputs.usb_wifi_enable }}" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
       - name: 上传 Ccache 调试日志
@@ -738,6 +791,15 @@ jobs:
           path: ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
           archive: false
 
+      - name: 上传 8821cu.ko 驱动工件
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtl8821cu_module
+          path: ${{ github.workspace }}/modules_out/8821cu.ko
+          archive: false
+          if-no-files-found: ignore
+
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -751,6 +813,14 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.ak3name }}
+          path: ./release_zips
+          skip-decompress: true
+
+      - name: 下载 8821cu.ko 驱动工件
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: rtl8821cu_module
           path: ./release_zips
           skip-decompress: true
 
@@ -805,6 +875,7 @@ jobs:
           - 三星SSG IO调度器支持：${{ github.event.inputs.ssg_enable }}
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
+          - USB无线网卡支持：${{ github.event.inputs.usb_wifi_enable }} (Realtek RTL8821CU/RTL8811CU 模块已单独发布)
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
           - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)
@@ -812,7 +883,7 @@ jobs:
           
           ### ⏫️ 更新内容：
           - 更新${{ env.KSU_TYPENAME }}至最新版本（${{ needs.build.outputs.ksuver }}）
-          - (预留)
+          - 内置/独立构建 RTL8821CU / RTL8811CU (0bda:c811) USB 无线网卡驱动
           
           ### 📋 安装方法 | Installation Guide
           1. 若你的手机已经安装了第三方Recovery（如TWRP)，可下载对应机型的AnyKernel刷机包后进入Recovery模式，通过Recovery刷入刷机包后重启设备；
@@ -829,4 +900,4 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "${{ env.TAG_HEAD }}-${{ env.FULL_VERSION }}" \
             --notes-file release_notes.md \
-            release_zips/AnyKernel3_*.zip
+            release_zips/*
